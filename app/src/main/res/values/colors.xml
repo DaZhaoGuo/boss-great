@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#121417</color>
+    <color name="log">#1C2128</color>
+    <color name="text">#F2F4F7</color>
+    <color name="hint">#9AA3AD</color>
+    <color name="teal">#12B7A6</color>
+</resources>

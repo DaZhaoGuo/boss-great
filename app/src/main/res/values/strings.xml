@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">打招呼助手</string>
+    <string name="accessibility_desc">在 Boss直聘职位列表打开职位详情，并点击「立即沟通」。招呼语由 Boss直聘按账号默认招呼发出。仅在点击开始后运行。</string>
+    <string name="guide">使用前开启本应用的无障碍服务，打开 Boss直聘并停留在「职位」列表。助手点击职位卡片进入详情，再点击「立即沟通」。招呼语由 Boss直聘按账号默认招呼发出。</string>
+    <string name="open_accessibility">开启无障碍</string>
+    <string name="grant_overlay">授予悬浮窗</string>
+    <string name="max_count">单次上限</string>
+    <string name="interval_ms">动作间隔（毫秒）</string>
+    <string name="include_keywords">职位名包含，逗号分隔</string>
+    <string name="exclude_keywords">职位名或公司排除，逗号分隔</string>
+    <string name="start">开始</string>
+    <string name="stop">停止</string>
+    <string name="dump_page">读取当前页面</string>
+    <string name="clear_seen">清空今日记录</string>
+    <string name="log_title">日志</string>
+    <string name="log_empty">尚无日志</string>
+    <string name="status_a11y_off">无障碍服务未开启</string>
+    <string name="status_waiting">无障碍服务已开启，等待连接</string>
+    <string name="status_running">运行中</string>
+    <string name="status_ready">无障碍服务已连接</string>
+</resources>
