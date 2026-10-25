@@ -267,6 +267,7 @@ class GreetEngine(
             }
             if (!canAct) return emptyList()
             greetRetries = 0
+            successCount += 1
             enter(EngineStep.WAIT_AFTER_GREET, nowMs)
             val name = pending?.title ?: "当前职位"
             return listOf(
@@ -292,7 +293,6 @@ class GreetEngine(
         if (!canAct) return emptyList()
         val name = pending?.title ?: "当前职位"
         if (page == PageKind.CHAT || BossPages.findContinue(root) != null) {
-            successCount += 1
             val fingerprint = markPending(root, screenWidth, screenHeight)
             pending = null
             enter(EngineStep.BACK_TO_LIST, nowMs)

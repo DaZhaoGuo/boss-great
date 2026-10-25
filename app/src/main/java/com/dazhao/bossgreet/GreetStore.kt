@@ -38,7 +38,7 @@ class GreetStore(context: Context) {
     val seen: MutableSet<String> = loadSeen()
 
     fun load(): GreetConfig = GreetConfig.sanitize(
-        maxCount = prefs.getInt(KEY_MAX, GreetConfig.DEFAULT.maxCount),
+        maxCount = loadMax(),
         intervalMs = prefs.getInt(KEY_INTERVAL, GreetConfig.DEFAULT.intervalMs),
         includeRaw = prefs.getString(KEY_INCLUDE, "").orEmpty(),
         excludeRaw = prefs.getString(KEY_EXCLUDE, "").orEmpty(),
@@ -52,6 +52,7 @@ class GreetStore(context: Context) {
             config.excludeRaw,
         )
         prefs.edit()
+            .putBoolean(KEY_LIMIT_MIGRATED, true)
             .putInt(KEY_MAX, safe.maxCount)
             .putInt(KEY_INTERVAL, safe.intervalMs)
             .putString(KEY_INCLUDE, safe.includeRaw)
@@ -75,6 +76,14 @@ class GreetStore(context: Context) {
             .apply()
     }
 
+    private fun loadMax(): Int {
+        if (prefs.getBoolean(KEY_LIMIT_MIGRATED, false)) {
+            return prefs.getInt(KEY_MAX, GreetConfig.DEFAULT.maxCount)
+        }
+        prefs.edit().putBoolean(KEY_LIMIT_MIGRATED, true).putInt(KEY_MAX, 200).apply()
+        return 200
+    }
+
     private fun loadSeen(): MutableSet<String> {
         if (prefs.getString(KEY_DAY, "") != today()) return mutableSetOf()
         return prefs.getStringSet(KEY_SEEN, emptySet()).orEmpty().toMutableSet()
@@ -85,6 +94,7 @@ class GreetStore(context: Context) {
     private companion object {
         const val PREFS = "boss_greet"
         const val KEY_MAX = "max_count"
+        const val KEY_LIMIT_MIGRATED = "limit_migrated_200"
         const val KEY_INTERVAL = "interval_ms"
         const val KEY_INCLUDE = "include"
         const val KEY_EXCLUDE = "exclude"

@@ -17,8 +17,13 @@ class OverlayWindow(private val context: Context) {
         if (!Settings.canDrawOverlays(context)) return false
         onStop = stop
         return try {
-            val current = view ?: createView().also { view = it }
-            current.text = text
+            val current = view
+            if (current == null) {
+                createView().also { view = it }.text = text
+            } else if (current.text.toString() != text) {
+                current.text = text
+                windowManager.updateViewLayout(current, current.layoutParams)
+            }
             true
         } catch (_: RuntimeException) {
             false

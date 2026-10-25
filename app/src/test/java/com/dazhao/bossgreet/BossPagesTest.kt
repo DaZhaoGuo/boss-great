@@ -149,6 +149,7 @@ class GreetEngineTest {
 
         val greet = engine.onTick(detail("立即沟通"), 1080, 2400, 12_000, true)
         assertTrue(greet.any { it is EngineAction.Tap && it.reason == "立即沟通" })
+        assertEquals(1, engine.successCount)
 
         assertTrue(engine.onTick(detail("继续沟通"), 1080, 2400, 13_000, true).isEmpty())
         val done = engine.onTick(detail("继续沟通"), 1080, 2400, 14_000, true)
@@ -179,10 +180,11 @@ class GreetEngineTest {
     fun retriesGreetOnceThenSkips() {
         val engine = GreetEngine(GreetFilter(), maxSuccess = 5, seen = mutableSetOf())
         engine.onTick(detail("立即沟通"), 1080, 2400, 10_000, true)
+        assertEquals(1, engine.successCount)
         val retry = engine.onTick(detail("立即沟通"), 1080, 2400, 12_000, true)
         assertTrue(retry.any { it is EngineAction.Log && it.message.startsWith("再次点击立即沟通") })
         val skipped = engine.onTick(detail("立即沟通"), 1080, 2400, 14_000, true)
-        assertEquals(0, engine.successCount)
+        assertEquals(1, engine.successCount)
         assertTrue(skipped.any { it is EngineAction.Back })
         assertTrue(skipped.any { it is EngineAction.Log && it.message.contains("仍未进入沟通") })
     }
