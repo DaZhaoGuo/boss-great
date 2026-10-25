@@ -43,7 +43,14 @@ class OverlayWindow(private val context: Context) {
             minHeight = (density * 48).toInt()
             setPadding((density * 16).toInt(), (density * 8).toInt(), (density * 16).toInt(), (density * 8).toInt())
             setBackgroundColor(0xF012B7A6.toInt())
-            setOnClickListener { onStop?.invoke() }
+            // 单击易误触；长按才停止，避免滑动/切页时打断打招呼
+            isClickable = true
+            isLongClickable = true
+            setOnClickListener(null)
+            setOnLongClickListener {
+                onStop?.invoke()
+                true
+            }
         }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,

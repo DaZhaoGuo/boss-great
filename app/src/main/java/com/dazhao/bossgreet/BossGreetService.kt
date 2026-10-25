@@ -6,9 +6,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -68,7 +71,7 @@ class BossGreetService : AccessibilityService() {
 
     private fun scan() {
         val now = SystemClock.uptimeMillis()
-        if (!GreetRuntime.running && !GreetRuntime.dumpRequested) {
+        if (!GreetRuntime.running && !GreetRuntime.scrollProbe && !GreetRuntime.dumpRequested) {
             if (::overlay.isInitialized) overlay.hide()
             return
         }
@@ -80,7 +83,7 @@ class BossGreetService : AccessibilityService() {
                 if (GreetRuntime.dumpRequested) {
                     GreetRuntime.dumpRequested = false
                     GreetRuntime.log("当前前台为 $packageName")
-                } else if (GreetRuntime.running && now - lastForeignLogAt > 4_000) {
+                } else if ((GreetRuntime.running || GreetRuntime.scrollProbe) && now - lastForeignLogAt > 4_000) {
                     lastForeignLogAt = now
                     GreetRuntime.log("前台不是 Boss直聘")
                 }
@@ -94,6 +97,10 @@ class BossGreetService : AccessibilityService() {
                 )
                 return
             }
+            if (GreetRuntime.scrollProbe) {
+                runScrollProbe(live, now)
+                return
+            }
             val engine = GreetRuntime.engine ?: return
             val metrics = resources.displayMetrics
             val actions = engine.onTick(
@@ -102,6 +109,7 @@ class BossGreetService : AccessibilityService() {
                 screenHeight = metrics.heightPixels,
                 nowMs = now,
                 canAct = canAct(now),
+                scrollAccepted = GreetRuntime.scrollAccepted,
             )
             var stopped = false
             for (action in actions) {
@@ -113,15 +121,21 @@ class BossGreetService : AccessibilityService() {
                         GreetRuntime.log(action.reason)
                         stopped = true
                     }
+                    is EngineAction.ListExhausted -> {
+                        GreetRuntime.running = false
+                        GreetRuntime.log(action.message)
+                        stopped = true
+                        alertListEnded()
+                    }
                     is EngineAction.Tap -> performTap(live, action.x, action.y, now)
                     EngineAction.Back -> performBack(now)
-                    EngineAction.Scroll -> performScroll(live, now)
+                    is EngineAction.Scroll -> performScroll(live, action, now)
                 }
             }
             if (stopped || !GreetRuntime.running) {
                 overlay.hide()
             } else {
-                val shown = overlay.show("已沟通 ${engine.successCount}/${GreetRuntime.maxCount}  ·  停止") {
+                val shown = overlay.show("已沟通 ${engine.successCount}/${GreetRuntime.maxCount}  ·  长按停止") {
                     GreetRuntime.requestStop("已手动停止")
                     overlay.hide()
                 }
@@ -135,6 +149,29 @@ class BossGreetService : AccessibilityService() {
         }
     }
 
+    private fun runScrollProbe(live: LiveNode, now: Long) {
+        overlay.hide()
+        val metrics = resources.displayMetrics
+        val actions = GreetRuntime.listScrollProbe.onTick(
+            root = live.ui,
+            screenWidth = metrics.widthPixels,
+            screenHeight = metrics.heightPixels,
+            nowMs = now,
+            canAct = canAct(now),
+        )
+        for (action in actions) {
+            when (action) {
+                is ProbeAction.Log -> GreetRuntime.log(action.message)
+                is ProbeAction.Stop -> {
+                    GreetRuntime.scrollProbe = false
+                    GreetRuntime.log(action.reason)
+                }
+                is ProbeAction.Gesture -> dispatchSwipe(action.startY, action.endY, action.durationMs, now)
+                is ProbeAction.NodeScroll -> scrollEveryNode(live, action.forward, now)
+            }
+        }
+    }
+
     private fun canAct(now: Long): Boolean = !acting && now >= nextActAt
 
     private fun armCooldown(now: Long) {
@@ -142,6 +179,7 @@ class BossGreetService : AccessibilityService() {
     }
 
     private fun performTap(live: LiveNode, x: Int, y: Int, now: Long) {
+        GreetRuntime.log("点击坐标 ($x,$y)")
         acting = true
         armCooldown(now)
         val path = Path().apply {
@@ -172,15 +210,127 @@ class BossGreetService : AccessibilityService() {
     }
 
     private fun performBack(now: Long) {
+        GreetRuntime.log("全局返回 GLOBAL_ACTION_BACK")
         performGlobalAction(GLOBAL_ACTION_BACK)
         armCooldown(now)
     }
 
-    private fun performScroll(live: LiveNode, now: Long) {
-        val target = largestScrollable(live)
-        val scrolled = target?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true
+    private fun performScroll(live: LiveNode, action: EngineAction.Scroll, now: Long) {
+        GreetRuntime.scrollAccepted = null
+        when (action.method) {
+            ScrollMethod.PARENT_SCROLL -> {
+                scrollEveryNode(live, forward = true, now = now)
+            }
+            ScrollMethod.LONG_GESTURE -> {
+                val height = resources.displayMetrics.heightPixels.toFloat()
+                dispatchSwipe(
+                    height * ListSwipe.START_FRACTION,
+                    height * ListSwipe.END_FRACTION,
+                    durationMs = ListSwipe.DURATION_MS,
+                    now = now,
+                )
+            }
+            ScrollMethod.CARD_GESTURE -> {
+                val height = resources.displayMetrics.heightPixels.toFloat()
+                dispatchSwipe(
+                    height * ListSwipe.START_FRACTION,
+                    height * ListSwipe.END_FRACTION,
+                    durationMs = ListSwipe.DURATION_MS,
+                    now = now,
+                )
+            }
+        }
+    }
+
+    private fun dispatchSwipe(startY: Float, endY: Float, durationMs: Long, now: Long) {
+        val x = resources.displayMetrics.widthPixels * 0.5f
+        acting = true
         armCooldown(now)
-        if (!scrolled) GreetRuntime.log("未找到可滚动列表")
+        val path = Path().apply {
+            moveTo(x, startY)
+            lineTo(x, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .build()
+        GreetRuntime.log(
+            "提交手势 dispatchGesture (${x.toInt()},${startY.toInt()})→(${x.toInt()},${endY.toInt()}) ${durationMs}ms",
+        )
+        val accepted = dispatchGesture(
+            gesture,
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    GreetRuntime.scrollAccepted = true
+                    acting = false
+                    GreetRuntime.log("手势回调完成 onCompleted")
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    GreetRuntime.scrollAccepted = false
+                    acting = false
+                    GreetRuntime.log("手势回调取消 onCancelled")
+                }
+            },
+            null,
+        )
+        if (!accepted) {
+            GreetRuntime.scrollAccepted = false
+            acting = false
+            GreetRuntime.log("手势提交被拒绝 dispatchGesture=false")
+        } else {
+            GreetRuntime.log("手势提交已接受 dispatchGesture=true")
+        }
+        handler.postDelayed({ acting = false }, 1_200)
+    }
+
+    private fun scrollEveryNode(live: LiveNode, forward: Boolean, now: Long) {
+        val actionId = if (forward) {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        val direction = if (forward) "FORWARD" else "BACKWARD"
+        val nodes = flattenLive(live).filter { it.ui.scrollable }
+        if (nodes.isEmpty()) {
+            GreetRuntime.log("父节点滚动 无 scrollable 节点")
+            GreetRuntime.scrollAccepted = false
+            armCooldown(now)
+            return
+        }
+        var any = false
+        for (node in nodes) {
+            val bounds = node.ui.bounds
+            val ok = node.info.performAction(actionId)
+            any = any || ok
+            GreetRuntime.log(
+                "父节点 ACTION_SCROLL_$direction 类名=${node.ui.className} 高=${bounds.height} 结果=$ok",
+            )
+        }
+        GreetRuntime.scrollAccepted = any
+        armCooldown(now)
+    }
+
+    private fun flattenLive(node: LiveNode): List<LiveNode> {
+        val out = ArrayList<LiveNode>()
+        fun walk(current: LiveNode) {
+            out += current
+            current.children.forEach { walk(it) }
+        }
+        walk(node)
+        return out
+    }
+
+    private fun alertListEnded() {
+        val vibrator = getSystemService(Vibrator::class.java)
+        vibrator?.vibrate(
+            VibrationEffect.createWaveform(longArrayOf(0, 200, 140, 200, 140, 200, 140, 320), -1),
+        )
+        val intent = Intent(this, ListEndActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+        } catch (error: RuntimeException) {
+            GreetRuntime.log("列表结束弹窗未打开：${error.message ?: error.javaClass.simpleName}")
+        }
     }
 
     private fun clickNearest(live: LiveNode, x: Int, y: Int): Boolean {
@@ -212,23 +362,6 @@ class BossGreetService : AccessibilityService() {
         return if (x in bounds.left..bounds.right && y in bounds.top..bounds.bottom) node else null
     }
 
-    private fun largestScrollable(node: LiveNode): AccessibilityNodeInfo? {
-        var best: AccessibilityNodeInfo? = null
-        var bestArea = 0
-        fun walk(current: LiveNode) {
-            if (current.info.isScrollable) {
-                val area = current.ui.bounds.width * current.ui.bounds.height
-                if (area > bestArea) {
-                    best = current.info
-                    bestArea = area
-                }
-            }
-            current.children.forEach { walk(it) }
-        }
-        walk(node)
-        return best
-    }
-
     private fun capture(info: AccessibilityNodeInfo): LiveNode {
         val children = buildList {
             for (index in 0 until info.childCount) {
@@ -238,11 +371,9 @@ class BossGreetService : AccessibilityService() {
         }
         val rect = Rect()
         info.getBoundsInScreen(rect)
-        val text = listOf(info.text?.toString().orEmpty(), info.contentDescription?.toString().orEmpty())
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .joinToString(" ")
+        val visible = info.text?.toString()?.trim().orEmpty()
+        val description = info.contentDescription?.toString()?.trim().orEmpty()
+        val text = visible.ifEmpty { description }
         val ui = UiNode(
             text = text,
             className = info.className?.toString().orEmpty(),

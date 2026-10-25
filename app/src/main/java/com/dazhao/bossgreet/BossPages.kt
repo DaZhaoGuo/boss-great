@@ -45,6 +45,23 @@ data class ClickTarget(
     val label: String,
 )
 
+data class CardMark(
+    val fingerprint: String,
+    val y: Int,
+)
+
+enum class ScrollMethod {
+    CARD_GESTURE,
+    PARENT_SCROLL,
+    LONG_GESTURE,
+}
+
+object ListSwipe {
+    const val START_FRACTION = 0.72f
+    const val END_FRACTION = 0.32f
+    const val DURATION_MS = 420L
+}
+
 data class GreetFilter(
     val includes: List<String> = emptyList(),
     val excludes: List<String> = emptyList(),
@@ -73,6 +90,7 @@ object BossPages {
         "立即沟通", "继续沟通", "职位详情", "岗位职责", "发送",
     )
     private val limitHints = listOf("已达上限", "次数用完", "次数已用完", "开聊次数")
+    private val listEndHints = listOf("没有更多", "暂无更多", "已经到底", "暂无相关职位")
     private val dismissPriority = listOf("取消", "暂不", "以后再说", "我知道了", "知道了", "关闭")
 
     fun flatten(node: UiNode): List<UiNode> {
@@ -96,6 +114,51 @@ object BossPages {
     fun isGreetLabel(text: String): Boolean = matchesAction(text, "立即沟通")
 
     fun isContinueLabel(text: String): Boolean = matchesAction(text, "继续沟通")
+
+    fun isLoading(root: UiNode): Boolean {
+        return flatten(root).any { node ->
+            val text = node.text.trim()
+            node.className.endsWith("ProgressBar") ||
+                text.contains("加载中") ||
+                text.contains("正在加载") ||
+                text.contains("加载更多") ||
+                text.contains("努力加载")
+        }
+    }
+
+    fun listEndLabel(root: UiNode): String? {
+        val screen = root.bounds
+        return flatten(root).firstOrNull { node ->
+            val text = node.text.trim()
+            text.length <= 16 &&
+                listEndHints.any { text.startsWith(it) } &&
+                node.bounds.height > 0 &&
+                node.bounds.top < screen.bottom &&
+                node.bounds.bottom > screen.top
+        }?.text?.trim()
+    }
+
+    fun isListEnded(root: UiNode): Boolean = listEndLabel(root) != null
+
+    fun swipeDistance(cards: List<JobCard>, screenHeight: Int): Int {
+        val gap = cards.sortedBy { it.clickY }
+            .zipWithNext { current, next -> next.clickY - current.clickY }
+            .firstOrNull { it > 80 }
+        val raw = gap ?: (screenHeight * 0.30f).toInt()
+        val minDistance = (screenHeight * 0.22f).toInt().coerceAtLeast(1)
+        val maxDistance = (screenHeight * 0.55f).toInt().coerceAtLeast(minDistance)
+        return raw.coerceIn(minDistance, maxDistance)
+    }
+
+    fun cardMarks(cards: List<JobCard>): List<CardMark> =
+        cards.map { CardMark(it.fingerprint, it.clickY) }
+
+    fun listMoved(before: List<CardMark>, after: List<CardMark>, thresholdPx: Int = 40): Boolean {
+        val beforeY = before.associate { it.fingerprint to it.y }
+        val afterY = after.associate { it.fingerprint to it.y }
+        if (beforeY.keys != afterY.keys) return true
+        return afterY.any { (fingerprint, y) -> (beforeY[fingerprint] ?: y) - y >= thresholdPx }
+    }
 
     fun classify(root: UiNode): PageKind {
         val nodes = flatten(root)

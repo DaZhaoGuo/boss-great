@@ -83,6 +83,40 @@ class BossPagesTest {
     }
 
     @Test
+    fun swipeDistanceFollowsOneCardGap() {
+        val cards = BossPages.findCards(twoCards(), 1080, 2400)
+        assertEquals(528, BossPages.swipeDistance(cards, 2400))
+        assertEquals(720, BossPages.swipeDistance(cards.take(1), 2400))
+    }
+
+    @Test
+    fun detectsLoadingAndListEndWithoutTreatingThemAsSalary() {
+        val loading = page(
+            tv("推荐", b(40, 180, 160, 240)),
+            tv("附近", b(180, 180, 300, 240)),
+            tv("25-35K", b(760, 400, 1040, 470)),
+            tv("加载中", b(400, 2100, 680, 2160)),
+        )
+        assertTrue(BossPages.isLoading(loading))
+        val ended = page(
+            tv("推荐", b(40, 180, 160, 240)),
+            tv("附近", b(180, 180, 300, 240)),
+            tv("25-35K", b(760, 400, 1040, 470)),
+            tv("没有更多职位", b(360, 2100, 720, 2160)),
+        )
+        assertEquals("没有更多职位", BossPages.listEndLabel(ended))
+        assertEquals(PageKind.LIST, BossPages.classify(ended))
+        val buried = page(
+            tv("推荐", b(40, 180, 160, 240)),
+            tv("附近", b(180, 180, 300, 240)),
+            tv("25-35K", b(760, 400, 1040, 470)),
+            tv("职责里写了没有更多加班", b(40, 800, 900, 880)),
+            tv("没有更多了", b(360, 2600, 720, 2660)),
+        )
+        assertEquals(null, BossPages.listEndLabel(buried))
+    }
+
+    @Test
     fun dismissPrefersCancel() {
         val root = page(
             tv("开通会员后可继续沟通", b(80, 700, 900, 780)),
@@ -154,16 +188,137 @@ class GreetEngineTest {
     }
 
     @Test
-    fun unchangedListStopsAfterThreeScrolls() {
+    fun unchangedPositionsEscalateBeforeEnding() {
         val list = listPage()
         val seen = BossPages.findCards(list, 1080, 2400).map { it.fingerprint }.toMutableSet()
         val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = seen)
-        repeat(3) { index ->
-            val actions = engine.onTick(list, 1080, 2400, 10_000L + index * 2_000, true)
-            assertTrue(actions.any { it is EngineAction.Scroll })
+        var now = 10_000L
+        val methods = ArrayList<ScrollMethod>()
+        val first = engine.onTick(list, 1080, 2400, now, true).filterIsInstance<EngineAction.Scroll>().single()
+        methods += first.method
+        repeat(5) {
+            now += GreetEngine.MIN_SETTLE_MS
+            methods += engine.onTick(list, 1080, 2400, now, true)
+                .filterIsInstance<EngineAction.Scroll>()
+                .single()
+                .method
         }
-        val stopped = engine.onTick(list, 1080, 2400, 16_000, true)
-        assertTrue(stopped.any { it is EngineAction.Stop && it.reason.contains("没有新职位") })
+        assertEquals(
+            listOf(
+                ScrollMethod.CARD_GESTURE,
+                ScrollMethod.PARENT_SCROLL,
+                ScrollMethod.LONG_GESTURE,
+                ScrollMethod.CARD_GESTURE,
+                ScrollMethod.PARENT_SCROLL,
+                ScrollMethod.LONG_GESTURE,
+            ),
+            methods,
+        )
+        now += GreetEngine.MIN_SETTLE_MS
+        assertTrue(engine.onTick(list, 1080, 2400, now, true).any { it is EngineAction.ListExhausted })
+    }
+
+    @Test
+    fun visibleEndLabelStillScrollsBeforeStopping() {
+        val list = page(
+            tv("推荐", b(40, 180, 160, 240)),
+            tv("附近", b(180, 180, 300, 240)),
+            tv("高级安卓前端开发", b(40, 400, 700, 470)),
+            tv("25-35K", b(760, 400, 1040, 470)),
+            tv("没有更多职位", b(360, 2100, 720, 2160)),
+        )
+        val seen = BossPages.findCards(list, 1080, 2400).map { it.fingerprint }.toMutableSet()
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = seen)
+        val actions = engine.onTick(list, 1080, 2400, 10_000, true)
+        assertTrue(actions.any { it is EngineAction.Scroll })
+        assertTrue(actions.none { it is EngineAction.ListExhausted })
+    }
+
+    @Test
+    fun cancelledGestureEscalatesWithoutEnding() {
+        val list = listPage()
+        val seen = BossPages.findCards(list, 1080, 2400).map { it.fingerprint }.toMutableSet()
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = seen)
+        engine.onTick(list, 1080, 2400, 10_000, true)
+        val next = engine.onTick(list, 1080, 2400, 10_500, true, scrollAccepted = false)
+        val scroll = next.filterIsInstance<EngineAction.Scroll>().single()
+        assertEquals(ScrollMethod.PARENT_SCROLL, scroll.method)
+    }
+
+    @Test
+    fun upwardMovementCountsAsScrollProgress() {
+        val before = listOf(CardMark("职位|25-35k|公司", 800))
+        val after = listOf(CardMark("职位|25-35k|公司", 700))
+        assertTrue(BossPages.listMoved(before, after))
+        assertFalse(BossPages.listMoved(before, listOf(CardMark("职位|25-35k|公司", 780))))
+        assertTrue(BossPages.listMoved(before, listOf(CardMark("新职位|18-23k|公司", 900))))
+    }
+
+    @Test
+    fun loadingIndicatorHoldsTheNextSwipe() {
+        val list = listPage()
+        val loading = page(*list.children.toTypedArray(), tv("加载中", b(400, 2100, 680, 2160)))
+        val seen = BossPages.findCards(list, 1080, 2400).map { it.fingerprint }.toMutableSet()
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = seen)
+        engine.onTick(list, 1080, 2400, 10_000, true)
+        val waiting = engine.onTick(loading, 1080, 2400, 13_000, true)
+        assertTrue(waiting.none { it is EngineAction.Scroll || it is EngineAction.ListExhausted })
+        assertEquals(EngineStep.WAIT_AFTER_SCROLL, engine.step)
+    }
+
+    @Test
+    fun newCardAfterPageWaitIsOpened() {
+        val first = listPage()
+        val seen = BossPages.findCards(first, 1080, 2400).map { it.fingerprint }.toMutableSet()
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = seen)
+        engine.onTick(first, 1080, 2400, 10_000, true)
+        val more = page(
+            *first.children.toTypedArray(),
+            tv("产品经理", b(40, 900, 500, 970)),
+            tv("18-23K", b(760, 900, 1040, 970)),
+            tv("深圳科创学院", b(40, 990, 700, 1050)),
+        )
+        val settled = engine.onTick(more, 1080, 2400, 12_500, true)
+        assertTrue(settled.none { it is EngineAction.Scroll || it is EngineAction.Tap })
+        assertTrue(settled.any { it is EngineAction.Log && it.message.contains("继续打招呼") })
+        assertEquals(EngineStep.WAIT_LIST, engine.step)
+        val opened = engine.onTick(more, 1080, 2400, 14_000, true)
+        assertTrue(opened.any { it is EngineAction.Tap && it.reason == "产品经理" })
+    }
+
+    @Test
+    fun keepsScrollingWhenTheListKeepsMoving() {
+        val seen = mutableSetOf(BossPages.fingerprint("高级安卓前端开发", "25-35K", ""))
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 200, seen = seen)
+        var now = 10_000L
+        var top = 900
+        var scrolls = 0
+        repeat(45) {
+            val list = page(
+                tv("推荐", b(40, 180, 160, 240)),
+                tv("附近", b(180, 180, 300, 240)),
+                tv("高级安卓前端开发", b(40, top, 700, top + 70)),
+                tv("25-35K", b(760, top, 1040, top + 70)),
+            )
+            val actions = engine.onTick(list, 1080, 2400, now, true)
+            assertTrue(actions.none { it is EngineAction.Stop || it is EngineAction.ListExhausted })
+            scrolls += actions.count { it is EngineAction.Scroll }
+            now += GreetEngine.MIN_SETTLE_MS
+            top -= 50
+            if (top < 500) top = 900
+        }
+        assertTrue(scrolls >= 40)
+    }
+
+    @Test
+    fun unknownPageBacksInsteadOfStopping() {
+        val engine = GreetEngine(GreetFilter(), maxSuccess = 20, seen = mutableSetOf())
+        val other = page(tv("活动说明", b(80, 400, 900, 480)))
+        val waiting = engine.onTick(other, 1080, 2400, 10_000, true)
+        assertTrue(waiting.none { it is EngineAction.Back || it is EngineAction.Stop })
+        val backed = engine.onTick(other, 1080, 2400, 16_000, true)
+        assertTrue(backed.any { it is EngineAction.Back })
+        assertTrue(backed.none { it is EngineAction.Stop || it is EngineAction.ListExhausted })
     }
 
     @Test
@@ -174,6 +329,24 @@ class GreetEngineTest {
             1080, 2400, 10_000, true,
         )
         assertTrue(actions.single() is EngineAction.Stop)
+    }
+
+    @Test
+    fun listScrollProbeSwipesWithoutGreeting() {
+        val probe = ListScrollProbe(maxCycles = 1, settleMs = 1_000L)
+        val first = probe.onTick(listPage(), 1080, 2400, 10_000, true)
+        assertTrue(first.any { it is ProbeAction.Log && it.message.contains("列表滑动探测开始") })
+        val gesture = first.filterIsInstance<ProbeAction.Gesture>().single()
+        assertEquals("上滑", gesture.label)
+        assertTrue(gesture.startY > gesture.endY)
+        assertTrue(first.none { it is ProbeAction.Stop })
+        val waiting = probe.onTick(listPage(), 1080, 2400, 10_400, true)
+        assertTrue(waiting.isEmpty())
+        val after = probe.onTick(listPage(), 1080, 2400, 11_100, true)
+        assertTrue(after.any { it is ProbeAction.Log && it.message.contains("探测核对") })
+        assertEquals("下滑", after.filterIsInstance<ProbeAction.Gesture>().single().label)
+        val other = ListScrollProbe().onTick(detail("立即沟通"), 1080, 2400, 20_000, true)
+        assertEquals("滑动探测等待列表页，当前=DETAIL", other.filterIsInstance<ProbeAction.Log>().single().message)
     }
 
     @Test

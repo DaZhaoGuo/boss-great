@@ -132,6 +132,16 @@
                 android:text="@string/start" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/scrollListButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/scroll_list"
+                android:textColor="@color/text" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/stopButton"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"

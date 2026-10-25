@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
             )
         }
         binding.startButton.setOnClickListener { startGreet() }
+        binding.scrollListButton.setOnClickListener { startScrollProbe() }
         binding.stopButton.setOnClickListener { GreetRuntime.requestStop("已手动停止") }
         binding.dumpButton.setOnClickListener {
             if (!BossGreetService.connected) {
@@ -77,6 +78,20 @@ class MainActivity : AppCompatActivity() {
         val config = readConfig()
         store.save(config)
         GreetRuntime.start(config, store.seen)
+        openBoss()
+    }
+
+    private fun startScrollProbe() {
+        if (!BossGreetService.isEnabled(this)) {
+            GreetRuntime.log("请先开启无障碍服务")
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return
+        }
+        GreetRuntime.startScrollProbe()
+        openBoss()
+    }
+
+    private fun openBoss() {
         val launch = packageManager.getLaunchIntentForPackage(BossPages.PACKAGE_NAME)
         if (launch == null) {
             GreetRuntime.log("未安装 Boss直聘")
@@ -97,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         !BossGreetService.isEnabled(this) -> getString(R.string.status_a11y_off)
         !BossGreetService.connected -> getString(R.string.status_waiting)
         GreetRuntime.running -> getString(R.string.status_running)
+        GreetRuntime.scrollProbe -> getString(R.string.status_scroll_probe)
         else -> getString(R.string.status_ready)
     }
 }

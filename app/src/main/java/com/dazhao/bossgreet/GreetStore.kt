@@ -17,7 +17,7 @@ data class GreetConfig(
         )
 
     companion object {
-        val DEFAULT = GreetConfig(maxCount = 20, intervalMs = 2000, includeRaw = "", excludeRaw = "")
+        val DEFAULT = GreetConfig(maxCount = 200, intervalMs = 2000, includeRaw = "", excludeRaw = "")
 
         fun sanitize(
             maxCount: Int,
@@ -25,7 +25,7 @@ data class GreetConfig(
             includeRaw: String,
             excludeRaw: String,
         ): GreetConfig = GreetConfig(
-            maxCount = maxCount.coerceIn(1, 100),
+            maxCount = maxCount.coerceIn(1, 500),
             intervalMs = intervalMs.coerceIn(800, 10_000),
             includeRaw = includeRaw.trim(),
             excludeRaw = excludeRaw.trim(),

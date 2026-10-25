@@ -2,7 +2,10 @@
 <resources>
     <string name="app_name">打招呼助手</string>
     <string name="accessibility_desc">在 Boss直聘职位列表打开职位详情，并点击「立即沟通」。招呼语由 Boss直聘按账号默认招呼发出。仅在点击开始后运行。</string>
-    <string name="guide">使用前开启本应用的无障碍服务，打开 Boss直聘并停留在「职位」列表。助手点击职位卡片进入详情，再点击「立即沟通」。招呼语由 Boss直聘按账号默认招呼发出。</string>
+    <string name="guide">使用前开启本应用的无障碍服务，打开 Boss直聘并停留在「职位」列表。助手点击职位卡片进入详情，再点击「立即沟通」。当前屏幕处理完后会上滑列表，并等待分页加载。招呼语由 Boss直聘按账号默认招呼发出。</string>
+    <string name="list_end_title">列表已结束</string>
+    <string name="list_end_message">职位列表已经加载完，没有更多职位可打招呼。</string>
+    <string name="list_end_ok">知道了</string>
     <string name="open_accessibility">开启无障碍</string>
     <string name="grant_overlay">授予悬浮窗</string>
     <string name="max_count">单次上限</string>
@@ -10,7 +13,9 @@
     <string name="include_keywords">职位名包含，逗号分隔</string>
     <string name="exclude_keywords">职位名或公司排除，逗号分隔</string>
     <string name="start">开始</string>
+    <string name="scroll_list">滑动列表</string>
     <string name="stop">停止</string>
+    <string name="status_scroll_probe">正在滑动列表</string>
     <string name="dump_page">读取当前页面</string>
     <string name="clear_seen">清空今日记录</string>
     <string name="log_title">日志</string>

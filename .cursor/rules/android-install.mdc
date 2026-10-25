@@ -1,0 +1,9 @@
+---
+description: After boss-greet Android changes, incremental build and install via project script
+globs: app/src/**/*.{kt,xml},app/build.gradle.kts,scripts/install-debug.sh
+alwaysApply: false
+---
+
+# 增量安装
+
+本仓库 Android 改动完成后，使用 skill `android-debug-install`：执行 `./scripts/install-debug.sh`（逻辑变更加 `--test`）。不要 `clean`，不要只编译不安装，不要让用户自己 adb。
